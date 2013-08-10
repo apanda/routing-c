@@ -160,9 +160,11 @@ void construct3ConnectedGraph (igraph_t* graph, uint32_t vertices) {
 
 khash_t(table)* orderToTable(int order[], int size) {
     khash_t(table)* t = kh_init(table);
-    int i = 0;
-    for (i = 0; i < size; i++) {
-        kh_put(table, t, order[i], &order[(i + 1) % size]);
+    int ret = 0;
+    for (int i = 0; i < size; i++) {
+        khiter_t k = kh_put(table, t, order[i], &ret);
+        assert(ret);
+        kh_value(t, k) = order[(i + 1) % size];
     }
     return t;
 }
@@ -181,28 +183,33 @@ void adjListToAdjMatrix (igraph_adjlist_t* list, igraph_matrix_t* mat, int32_t v
     }
 }
 
-bool testPathExist (igraph_t* graph, igraph_integer_t src, igraph_integer_t dest, int order[], int size) {
-    igraph_adjlist_t adj_list;
+static void graphAdjMatrix (igraph_t *graph, igraph_matrix_t* mat) {
     int32_t vertices = igraph_vcount(graph);
+    //
+    // Adjacency matrix
+    //  1. Get an adjacency list
+    igraph_adjlist_t adj_list;
+    igraph_adjlist_init(graph, &adj_list, IGRAPH_ALL);
+    //  2. Create matrix
+    igraph_matrix_init(mat, vertices, vertices);
+    //  3. Translate
+    adjListToAdjMatrix(&adj_list, mat, vertices);
+    igraph_adjlist_destroy(&adj_list);
+}
+
+bool testPathExist (igraph_matrix_t* adj, 
+                int32_t vertices,
+                igraph_integer_t src,
+                igraph_integer_t dest,
+                int order[],
+                int size) {
     igraph_matrix_t visited;
-    igraph_matrix_t adj;
-    
     // Hashtable for routing
     khash_t(table)* t = orderToTable(order, size);
-
 
     // Matrix for tracking what has been visited
     igraph_matrix_init(&visited, vertices, vertices);
     igraph_matrix_null(&visited);
-
-    // Adjacency matrix
-    //  1. Get an adjacency list
-    igraph_adjlist_init(graph, &adj_list, IGRAPH_ALL);
-    //  2. Create matrix
-    igraph_matrix_init(&adj, vertices, vertices);
-    //  3. Translate
-    adjListToAdjMatrix(&adj_list, &adj, vertices);
-    igraph_adjlist_destroy(&adj_list);
 
     // Start from src
     igraph_integer_t current = src;
@@ -210,16 +217,17 @@ bool testPathExist (igraph_t* graph, igraph_integer_t src, igraph_integer_t dest
     igraph_integer_t link = src;
     while (current != dest) {
         // Check to see if we have link to destination
-        if (MATRIX(adj, current, dest) == 1) {
+        if (MATRIX(*adj, current, dest) == 1) {
             link = current;
             current = dest;
             igraph_matrix_set(&visited, current, dest, 1);
-            printf("Taking direct link to dest\n");
+            //printf("Taking direct link to dest\n");
         } else {
             // If we are entering a loop abort
             if (MATRIX(visited, current, link) == 1) {
+                igraph_matrix_destroy(&visited);
                 return false;
-                printf("Loop detected\n");
+                //printf("Loop detected\n");
             }
             
             // Update loop detection information
@@ -227,18 +235,63 @@ bool testPathExist (igraph_t* graph, igraph_integer_t src, igraph_integer_t dest
             khint_t bucket = kh_get(table, t, link);            
             assert(bucket != kh_end(t));
             int next = kh_value(t, bucket);
-            if (MATRIX(adj, current, next) == 1) {
+            if (MATRIX(*adj, current, next) == 1) {
                 // If a link exists...
                 link = current;
                 current = next;
-                printf("Going to node\n");
+                //printf("Going to node %d\n", current);
             } else {
                 // No link exists...
                 link = next;
-                printf("Reflecting\n");
+                //printf("Reflecting\n");
             }
         }
     }
+    igraph_matrix_destroy(&visited);
+    return true;
+}
 
+bool test3ConnectedResilience (igraph_t* graph, int order[], int size) {
+    printf("Testing order\n");
+    for (int i = 0; i < size; i++) {
+        printf("order[%d] = %d\n", i, order[i]);
+    }
+    int32_t vertices = igraph_vcount(graph);
+    igraph_matrix_t adjMatrix;
+    graphAdjMatrix (graph, &adjMatrix);
+    int32_t edges = igraph_ecount(graph);
+    int32_t edge[2];
+    const igraph_integer_t DEST = 0;
+    igraph_real_t mincut = 0.0;
+    igraph_mincut_value(graph, &mincut, NULL);
+    assert(mincut >= 3.0);
+    for (edge[0] = 0; edge[0] < edges; edge[0]++) {
+        igraph_integer_t v0[2];
+        // Get edges
+        igraph_edge(graph, edge[0], &v0[0], &v0[1]);
+        // Remove edge
+        igraph_matrix_set(&adjMatrix, v0[0], v0[1], 0);
+        igraph_matrix_set(&adjMatrix, v0[1], v0[0], 0);
+        for (edge[1] = edge[0] + 1; edge[1] < edges; edge[1]++) {
+            igraph_integer_t v1[2];
+            // We assume things are still connected (the graph is 2 connected)
+            // hence omitting connected check
+            igraph_edge(graph, edge[1], &v1[0], &v1[1]);
+            igraph_matrix_set(&adjMatrix, v1[0], v1[1], 0);
+            igraph_matrix_set(&adjMatrix, v1[1], v1[0], 0);
+            for (int src = 0; src < vertices; src++) {
+                if (src == DEST) {
+                    continue;
+                }
+                if(!testPathExist(&adjMatrix, vertices, src, DEST, order, size)) {
+                    return false;
+                }
+            }
+            igraph_matrix_set(&adjMatrix, v1[0], v1[1], 1);
+            igraph_matrix_set(&adjMatrix, v1[1], v1[0], 1);
+        }
+        igraph_matrix_set(&adjMatrix, v0[0], v0[1], 1);
+        igraph_matrix_set(&adjMatrix, v0[1], v0[0], 1);
+    }
     return true;
 }
