@@ -206,6 +206,8 @@ static khash_t(table)* orderToTable(gsl_permutation* order, int size) {
     return t;
 }
 
+
+
 void adjListToAdjMatrix (igraph_adjlist_t* list, igraph_matrix_t* mat, int32_t vertices) {
     igraph_matrix_null(mat);
     int i = 0;
@@ -215,7 +217,7 @@ void adjListToAdjMatrix (igraph_adjlist_t* list, igraph_matrix_t* mat, int32_t v
         int j = 0;
         for (j = 0; j < size; j++) {
             int other_vertex = VECTOR(*nbrs)[j];
-            igraph_matrix_set(mat, i, other_vertex, 1);
+            igraph_matrix_set(mat, i, other_vertex, MATRIX(*mat, i, other_vertex) + 1);
         }
     }
 }
@@ -252,7 +254,7 @@ bool testPathExist (igraph_matrix_t* adj,
     igraph_integer_t link = src;
     while (current != dest) {
         // Check to see if we have link to destination
-        if (MATRIX(*adj, current, dest) == 1) {
+        if (MATRIX(*adj, current, dest) > 0) {
             link = current;
             current = dest;
             igraph_matrix_set(&visited, current, dest, 1);
@@ -268,9 +270,12 @@ bool testPathExist (igraph_matrix_t* adj,
             // Update loop detection information
             igraph_matrix_set(&visited, current, link, 1);
             khint_t bucket = kh_get(table, t, link);            
+            if (bucket == kh_end(t)) {
+                printf ("current: %d, link: %d, src: %d, dest: %d\n", current, link, src, dest);
+            }
             assert(bucket != kh_end(t));
             int next = kh_value(t, bucket);
-            if (MATRIX(*adj, current, next) == 1) {
+            if (MATRIX(*adj, current, next) > 0) {
                 // If a link exists...
                 link = current;
                 current = next;
@@ -284,6 +289,16 @@ bool testPathExist (igraph_matrix_t* adj,
     }
     igraph_matrix_destroy(&visited);
     return true;
+}
+
+static inline void RemoveEdge(igraph_matrix_t* mat, int32_t v0, int32_t v1) {
+    igraph_matrix_set(mat, v0, v1, MATRIX(*mat, v0, v1) - 1);
+    igraph_matrix_set(mat, v1, v0, MATRIX(*mat, v1, v0) - 1);
+}
+
+static inline void AddEdge(igraph_matrix_t* mat, int32_t v0, int32_t v1) {
+    igraph_matrix_set(mat, v0, v1, MATRIX(*mat, v0, v1) + 1);
+    igraph_matrix_set(mat, v1, v0, MATRIX(*mat, v1, v0) + 1);
 }
 
 bool test3ConnectedResilience (const igraph_t* graph, 
@@ -305,15 +320,13 @@ bool test3ConnectedResilience (const igraph_t* graph,
         // Get edges
         igraph_edge(graph, edge[0], &v0[0], &v0[1]);
         // Remove edge
-        igraph_matrix_set(&adjMatrix, v0[0], v0[1], 0);
-        igraph_matrix_set(&adjMatrix, v0[1], v0[0], 0);
+        RemoveEdge(&adjMatrix, v0[0], v0[1]);
         for (edge[1] = edge[0] + 1; edge[1] < edges; edge[1]++) {
             igraph_integer_t v1[2];
             // We assume things are still connected (the graph is 2 connected)
             // hence omitting connected check
             igraph_edge(graph, edge[1], &v1[0], &v1[1]);
-            igraph_matrix_set(&adjMatrix, v1[0], v1[1], 0);
-            igraph_matrix_set(&adjMatrix, v1[1], v1[0], 0);
+            RemoveEdge(&adjMatrix, v1[0], v1[1]);
             for (int src = 0; src < vertices; src++) {
                 if (src == dest) {
                     continue;
@@ -323,11 +336,9 @@ bool test3ConnectedResilience (const igraph_t* graph,
                     goto cleanup;
                 }
             }
-            igraph_matrix_set(&adjMatrix, v1[0], v1[1], 1);
-            igraph_matrix_set(&adjMatrix, v1[1], v1[0], 1);
+            AddEdge(&adjMatrix, v1[0], v1[1]);
         }
-        igraph_matrix_set(&adjMatrix, v0[0], v0[1], 1);
-        igraph_matrix_set(&adjMatrix, v0[1], v0[0], 1);
+        AddEdge(&adjMatrix, v0[0], v0[1]);
     }
 cleanup:
     igraph_matrix_destroy(&adjMatrix);
@@ -338,18 +349,28 @@ cleanup:
 void generateAndTestRandomGraph (int vertices) {
     igraph_t graph;
     construct3ConnectedGraph (&graph, vertices);
+    vertices = igraph_vcount(&graph);
     // User vertices - 1 (the highest vertex as dest)
     igraph_integer_t dest = vertices - 1;
     gsl_permutation *porder = gsl_permutation_alloc(vertices - 1);
     gsl_permutation_init(porder);
+    bool any_success = false;
     do {
         // Permute order here somehow
         gsl_permutation_fprintf(stdout, porder, "%u ");
         if (test3ConnectedResilience (&graph, dest, porder, (vertices - 1))) {
+            any_success |= true;
             printf ("Success\n");
         } else {
             printf ("Failure\n");
         }
     } while (gsl_permutation_next (porder) == GSL_SUCCESS);
+    if (!any_success) {
+        printf("Everything failed, writing graph out for analysis to a.gml\n");
+        FILE* out = fopen("a.gml", "w");
+        igraph_write_graph_gml(&graph, out, NULL, NULL);
+        fflush(out);
+        fclose(out);
+    }
     gsl_permutation_free (porder);
 }

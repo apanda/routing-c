@@ -13,8 +13,8 @@ int main(int argc, char* argv[]) {
     if (vertices < 4) {
         fprintf(stderr, "Need at least 4 vertices\n");
         fprintf(stderr, "Usage: %s -n <nodes>\n", argv[0]);
-        return 0;
+        return 1;
     }
     generateAndTestRandomGraph(vertices);
-    return 1;
+    return 0;
 }
