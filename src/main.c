@@ -10,13 +10,16 @@ static void usage(char* argv[]) {
 int main(int argc, char* argv[]) {
     int c; int vertices = 0;
     unsigned long int seed = 0; bool recreate = false;
-    while ((c = getopt(argc, argv, "n:s:r")) != -1) {
+    while ((c = getopt(argc, argv, "n:s:t")) != -1) {
         if (c == 'n') {
             printf("Nodes: %s\n", optarg);
             vertices = atoi(optarg);
         } else if (c == 's') {
             recreate = true;
             seed = strtoul(optarg, NULL, 10);
+        } else if (c == 't') {
+            test_permutations (3, 3);
+            return 0;
         }
     }
     if (vertices < 4) {

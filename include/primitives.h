@@ -46,4 +46,5 @@ bool generateAndTestRandomGraph (int vertices);
 void recreate3ConnectedGraph (igraph_t *graph, const char* commands);
 void set_rng_seed (unsigned long int seed);
 void InitRng ();
+void test_permutations (int length, int psize);
 #endif

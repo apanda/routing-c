@@ -355,25 +355,68 @@ cleanup:
     return ret;
 }
 
+static int next_permutation (gsl_permutation** permutations, int length) {
+    for (int i = length - 1; i >= 0; i--) {
+        if (gsl_permutation_next (permutations[i]) == GSL_SUCCESS) {
+            return GSL_SUCCESS;
+        } else {
+            gsl_permutation_init(permutations[i]);
+        }
+    }
+    return GSL_FAILURE;
+}
+
+static void init_permutations (gsl_permutation*** permutations, int length, int psize) {
+    *permutations = malloc(sizeof(gsl_permutation*) * length);
+    for (int i = 0; i < length; i++) {
+        (*permutations)[i] = gsl_permutation_alloc(psize);
+        gsl_permutation_init((*permutations)[i]);
+    }
+}
+
+static void destroy_permutations (gsl_permutation** permutations, int length) {
+    for (int i = 0; i < length; i++) {
+        gsl_permutation_free (permutations[i]);
+    }
+    free(permutations);
+}
+
+static void print_permutations (gsl_permutation** permutations, int length) {
+    for (int i = 0; i < length; i++) {
+        printf ("| ");
+        gsl_permutation_fprintf(stdout, permutations[i], "%u ");
+        printf("| ");
+    }
+}
+
+void test_permutations (int length, int psize) {
+    gsl_permutation** permutations;
+    init_permutations(&permutations, length, psize);
+    do {
+        print_permutations(permutations, length);
+        printf("\n");
+    } while (next_permutation (permutations, length) == GSL_SUCCESS);
+}
+
 static bool testGraph (igraph_t* graph) {
     int32_t vertices = igraph_vcount(graph);
     // User vertices - 1 (the highest vertex as dest)
     igraph_integer_t dest = vertices - 1;
-    gsl_permutation *porder = gsl_permutation_alloc(vertices - 1);
-    gsl_permutation_init(porder);
+    gsl_permutation **porder;
+    init_permutations (&porder, (vertices - 1), (vertices - 1));
     bool any_success = false;
     int success_count = 0;
     do {
         // Permute order here somehow
-        gsl_permutation_fprintf(stdout, porder, "%u ");
-        if (test3ConnectedResilience (graph, dest, porder, (vertices - 1))) {
+        gsl_permutation_fprintf(stdout, porder[0], "%u ");
+        if (test3ConnectedResilience (graph, dest, porder[0], (vertices - 1))) {
             any_success |= true;
             printf ("Success\n");
             success_count++;
         } else {
             printf ("Failure\n");
         }
-    } while (gsl_permutation_next (porder) == GSL_SUCCESS);
+    } while (gsl_permutation_next (porder[0]) == GSL_SUCCESS);
     if (!any_success) {
         printf("Everything failed, writing graph out for analysis to a.gml\n");
         FILE* out = fopen("a.gml", "w");
@@ -381,8 +424,8 @@ static bool testGraph (igraph_t* graph) {
         fflush(out);
         fclose(out);
     }
-    gsl_permutation_free (porder);
     printf("Success count is %d\n", success_count);
+    destroy_permutations(porder, (vertices - 1));
     return any_success;
 }
 
