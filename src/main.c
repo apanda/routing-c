@@ -1,15 +1,20 @@
 #include <primitives.h>
 #include <stdio.h>
-void testK4Routing () {
-    igraph_t graph;
-    construct3ConnectedGraph (&graph, 4);
-    int order[3] = {1, 2, 3};
-    if (test3ConnectedResilience (&graph, order, 3)) {
-        printf ("Success\n");
-    }
-}
+#include <stdlib.h>
+#include <unistd.h>
 int main(int argc, char* argv[]) {
-    printf("Testing K4 routing\n");
-    testK4Routing();
+    int c; int vertices = 0;
+    while ((c = getopt(argc, argv, "n:")) != -1) {
+        if (c == 'n') {
+            printf("Nodes: %s\n", optarg);
+            vertices = atoi(optarg);
+        }
+    }
+    if (vertices < 4) {
+        fprintf(stderr, "Need at least 4 vertices\n");
+        fprintf(stderr, "Usage: %s -n <nodes>\n", argv[0]);
+        return 0;
+    }
+    generateAndTestRandomGraph(vertices);
     return 1;
 }

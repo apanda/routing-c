@@ -1,4 +1,5 @@
 #include "primitives.h"
+#include <string.h>
 static gsl_rng *r = NULL;
 //Init the rng
 inline static void InitRng () {
@@ -11,8 +12,13 @@ inline static void InitRng () {
         gsl_rng_env_setup();
         T = gsl_rng_default;
         r = gsl_rng_alloc (T);
+        printf("Setting seed to %lu\n", seed);
         gsl_rng_set (r, seed);
     }
+}
+
+void set_rng_seed (unsigned long int seed) {
+    gsl_rng_set (r, seed);
 }
 
 // Split one edge and add a new edge connecting the new vertex to a third vertex
@@ -99,7 +105,7 @@ static void addTwoVertices (igraph_t* graph) {
 
 // Add a new edge between two vertexes. This might result in a vertex connecting two already connected
 // vertexes.
-static void addNewEdge (igraph_t* graph) {
+inline static void addNewEdge (igraph_t* graph) {
     // # of edges
     // # of vertices
     int32_t vertices = igraph_vcount(graph);
@@ -121,7 +127,6 @@ static void addNewEdge (igraph_t* graph) {
 
 // Generate random graph using BG-operations
 void evolve3ConnectedGraph (igraph_t* graph, uint32_t verticesToAdd) {
-    InitRng();
     uint32_t added = 0;
     while (added < verticesToAdd) {
         int32_t operation = (int32_t)(gsl_rng_get(r) % 3);
@@ -140,10 +145,11 @@ void evolve3ConnectedGraph (igraph_t* graph, uint32_t verticesToAdd) {
                 break;
         };
     }
-    printf("\n");
 }
 
 void construct3ConnectedGraph (igraph_t* graph, uint32_t vertices) {
+    InitRng();
+    printf("k");
     // Start with K4
     int err = igraph_full (graph,
                  4, // Vertices
@@ -156,15 +162,46 @@ void construct3ConnectedGraph (igraph_t* graph, uint32_t vertices) {
     if (vertices > 4) {
         evolve3ConnectedGraph (graph, vertices - 4);
     }
+    printf("\n");
 }
 
-khash_t(table)* orderToTable(int order[], int size) {
+void recreate3ConnectedGraph (igraph_t *graph, char* commands) {
+    int clen = strlen(commands);
+    int err;
+    for (int i = 0; i < clen; i++) {
+        switch (commands[i]) {
+            case 'k':
+                err = igraph_full (graph,
+                                    4,
+                                    false, 
+                                    false);
+                if (err != 0) {
+                    printf ("Failed to construct graph\n");
+                    return;
+                }
+                break;
+            case '0':
+                splitEdge (graph);
+                break;
+            case '1':
+                addTwoVertices (graph);
+                break;
+            case '2':
+                addNewEdge (graph);
+                break;
+        }
+    }
+}
+
+static khash_t(table)* orderToTable(gsl_permutation* order, int size) {
     khash_t(table)* t = kh_init(table);
     int ret = 0;
     for (int i = 0; i < size; i++) {
-        khiter_t k = kh_put(table, t, order[i], &ret);
+        int ith = gsl_permutation_get(order, i);
+        int nextth = gsl_permutation_get(order, (i + 1) % size);
+        khiter_t k = kh_put(table, t, ith, &ret);
         assert(ret);
-        kh_value(t, k) = order[(i + 1) % size];
+        kh_value(t, k) = nextth;
     }
     return t;
 }
@@ -183,7 +220,7 @@ void adjListToAdjMatrix (igraph_adjlist_t* list, igraph_matrix_t* mat, int32_t v
     }
 }
 
-static void graphAdjMatrix (igraph_t *graph, igraph_matrix_t* mat) {
+static void graphAdjMatrix (const igraph_t *graph, igraph_matrix_t* mat) {
     int32_t vertices = igraph_vcount(graph);
     //
     // Adjacency matrix
@@ -201,11 +238,9 @@ bool testPathExist (igraph_matrix_t* adj,
                 int32_t vertices,
                 igraph_integer_t src,
                 igraph_integer_t dest,
-                int order[],
-                int size) {
+                khash_t(table)* t) {
     igraph_matrix_t visited;
     // Hashtable for routing
-    khash_t(table)* t = orderToTable(order, size);
 
     // Matrix for tracking what has been visited
     igraph_matrix_init(&visited, vertices, vertices);
@@ -251,20 +286,20 @@ bool testPathExist (igraph_matrix_t* adj,
     return true;
 }
 
-bool test3ConnectedResilience (igraph_t* graph, int order[], int size) {
-    printf("Testing order\n");
-    for (int i = 0; i < size; i++) {
-        printf("order[%d] = %d\n", i, order[i]);
-    }
+bool test3ConnectedResilience (const igraph_t* graph, 
+                                igraph_integer_t dest, 
+                                gsl_permutation* order, 
+                                int size) {
     int32_t vertices = igraph_vcount(graph);
     igraph_matrix_t adjMatrix;
     graphAdjMatrix (graph, &adjMatrix);
     int32_t edges = igraph_ecount(graph);
     int32_t edge[2];
-    const igraph_integer_t DEST = 0;
+    khash_t(table)* t = orderToTable(order, size);
     igraph_real_t mincut = 0.0;
     igraph_mincut_value(graph, &mincut, NULL);
     assert(mincut >= 3.0);
+    bool ret = true;
     for (edge[0] = 0; edge[0] < edges; edge[0]++) {
         igraph_integer_t v0[2];
         // Get edges
@@ -280,11 +315,12 @@ bool test3ConnectedResilience (igraph_t* graph, int order[], int size) {
             igraph_matrix_set(&adjMatrix, v1[0], v1[1], 0);
             igraph_matrix_set(&adjMatrix, v1[1], v1[0], 0);
             for (int src = 0; src < vertices; src++) {
-                if (src == DEST) {
+                if (src == dest) {
                     continue;
                 }
-                if(!testPathExist(&adjMatrix, vertices, src, DEST, order, size)) {
-                    return false;
+                if(!testPathExist(&adjMatrix, vertices, src, dest, t)) {
+                    ret = false;
+                    goto cleanup;
                 }
             }
             igraph_matrix_set(&adjMatrix, v1[0], v1[1], 1);
@@ -293,5 +329,27 @@ bool test3ConnectedResilience (igraph_t* graph, int order[], int size) {
         igraph_matrix_set(&adjMatrix, v0[0], v0[1], 1);
         igraph_matrix_set(&adjMatrix, v0[1], v0[0], 1);
     }
-    return true;
+cleanup:
+    igraph_matrix_destroy(&adjMatrix);
+    kh_destroy(table, t); 
+    return ret;
+}
+
+void generateAndTestRandomGraph (int vertices) {
+    igraph_t graph;
+    construct3ConnectedGraph (&graph, vertices);
+    // User vertices - 1 (the highest vertex as dest)
+    igraph_integer_t dest = vertices - 1;
+    gsl_permutation *porder = gsl_permutation_alloc(vertices - 1);
+    gsl_permutation_init(porder);
+    do {
+        // Permute order here somehow
+        gsl_permutation_fprintf(stdout, porder, "%u ");
+        if (test3ConnectedResilience (&graph, dest, porder, (vertices - 1))) {
+            printf ("Success\n");
+        } else {
+            printf ("Failure\n");
+        }
+    } while (gsl_permutation_next (porder) == GSL_SUCCESS);
+    gsl_permutation_free (porder);
 }
