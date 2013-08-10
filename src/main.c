@@ -2,19 +2,36 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+
+static void usage(char* argv[]) {
+    fprintf(stderr, "Usage: %s -n <nodes> [-s seed]\n", argv[0]);
+}
+
 int main(int argc, char* argv[]) {
     int c; int vertices = 0;
-    while ((c = getopt(argc, argv, "n:")) != -1) {
+    unsigned long int seed = 0; bool recreate = false;
+    while ((c = getopt(argc, argv, "n:s:r")) != -1) {
         if (c == 'n') {
             printf("Nodes: %s\n", optarg);
             vertices = atoi(optarg);
+        } else if (c == 's') {
+            recreate = true;
+            seed = strtoul(optarg, NULL, 10);
         }
     }
     if (vertices < 4) {
         fprintf(stderr, "Need at least 4 vertices\n");
-        fprintf(stderr, "Usage: %s -n <nodes>\n", argv[0]);
+        usage(argv);
         return 1;
     }
-    generateAndTestRandomGraph(vertices);
-    return 0;
+    InitRng();
+    if (recreate) {
+        set_rng_seed (seed);
+    }
+
+    if (generateAndTestRandomGraph(vertices)) {
+        return 0;
+    } else {
+        return 1;
+    }
 }
