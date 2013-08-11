@@ -246,7 +246,7 @@ bool testPathExist (const igraph_matrix_t* adj,
                 const int32_t vertices,
                 const igraph_integer_t src,
                 const igraph_integer_t dest,
-                const khash_t(table)* t) {
+                khash_t(table)* t[]) {
     igraph_matrix_t visited;
     // Hashtable for routing
 
@@ -276,12 +276,12 @@ bool testPathExist (const igraph_matrix_t* adj,
             
             // Update loop detection information
             igraph_matrix_set(&visited, current, link, 1);
-            khint_t bucket = kh_get(table, t, link);            
-            if (bucket == kh_end(t)) {
+            khint_t bucket = kh_get(table, t[current], link);            
+            if (bucket == kh_end(t[current])) {
                 //printf ("current: %d, link: %d, src: %d, dest: %d\n", current, link, src, dest);
             }
             assert(bucket != kh_end(t));
-            int next = kh_value(t, bucket);
+            int next = kh_value(t[current], bucket);
             if (MATRIX(*adj, current, next) > 0) {
                 // If a link exists...
                 link = current;
@@ -310,14 +310,17 @@ static inline void AddEdge(igraph_matrix_t* mat, int32_t v0, int32_t v1) {
 
 bool test3ConnectedResilience (const igraph_t* graph, 
                                 const igraph_integer_t dest, 
-                                const gsl_permutation* order, 
+                                gsl_permutation** order, 
                                 const int size) {
     int32_t vertices = igraph_vcount(graph);
     igraph_matrix_t adjMatrix;
     graphAdjMatrix (graph, &adjMatrix);
     int32_t edges = igraph_ecount(graph);
     int32_t edge[2];
-    khash_t(table)* t = orderToTable(order, size);
+    khash_t(table)** t = malloc(sizeof(khash_t(table)*) * size);
+    for (int i = 0; i < size; i++) {
+        t[i] = orderToTable(order[i], size);
+    }
     igraph_real_t mincut = 0.0;
     igraph_mincut_value(graph, &mincut, NULL);
     assert(mincut >= 3.0);
@@ -351,7 +354,10 @@ bool test3ConnectedResilience (const igraph_t* graph,
     }
 cleanup:
     igraph_matrix_destroy(&adjMatrix);
-    kh_destroy(table, t); 
+    for (int i = 0; i < size; i++) {
+        kh_destroy(table, t[i]); 
+    }
+    free(t);
     return ret;
 }
 
@@ -407,16 +413,16 @@ static bool testGraph (igraph_t* graph) {
     bool any_success = false;
     int success_count = 0;
     do {
-        // Permute order here somehow
-        gsl_permutation_fprintf(stdout, porder[0], "%u ");
-        if (test3ConnectedResilience (graph, dest, porder[0], (vertices - 1))) {
+        print_permutations(porder, (vertices - 1));
+        if (test3ConnectedResilience (graph, dest, porder, (vertices - 1))) {
+            // Permute order here somehow
             any_success |= true;
             printf ("Success\n");
             success_count++;
         } else {
             printf ("Failure\n");
         }
-    } while (gsl_permutation_next (porder[0]) == GSL_SUCCESS);
+    } while (next_permutation (porder, (vertices - 1)) == GSL_SUCCESS);
     if (!any_success) {
         printf("Everything failed, writing graph out for analysis to a.gml\n");
         FILE* out = fopen("a.gml", "w");

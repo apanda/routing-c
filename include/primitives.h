@@ -35,12 +35,12 @@ bool testPathExist (const igraph_matrix_t* adj,
                 const int32_t vertices,
                 const igraph_integer_t src,
                 const igraph_integer_t dest,
-                const khash_t(table)* t);
+                khash_t(table)* t[]);
 
 // Check to see whether a particular routing order is 2-resilient
 bool test3ConnectedResilience (const igraph_t* graph, 
                                 const igraph_integer_t dest, 
-                                const gsl_permutation* order, 
+                                gsl_permutation** order, 
                                 const int size);
 bool generateAndTestRandomGraph (int vertices);
 void recreate3ConnectedGraph (igraph_t *graph, const char* commands);
