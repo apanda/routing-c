@@ -1,4 +1,5 @@
 #include "primitives.h"
+#include <thpool.h>
 #include <string.h>
 static gsl_rng *r = NULL;
 //Init the rng
@@ -412,6 +413,8 @@ static bool testGraph (igraph_t* graph) {
     init_permutations (&porder, (vertices - 1), (vertices - 1));
     bool any_success = false;
     int success_count = 0;
+    thpool_t *tpool;
+    tpool = thpool_init(4); // Make this not hardcoded
     do {
         print_permutations(porder, (vertices - 1));
         if (test3ConnectedResilience (graph, dest, porder, (vertices - 1))) {
