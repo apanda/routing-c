@@ -4,13 +4,14 @@
 #include <unistd.h>
 
 static void usage(char* argv[]) {
-    fprintf(stderr, "Usage: %s -n <nodes> [-s seed]\n", argv[0]);
+    fprintf(stderr, "Usage: %s [-n <nodes>] [-f filename] [-s seed]\n", argv[0]);
 }
 
 int main(int argc, char* argv[]) {
     int c; int vertices = 0;
     unsigned long int seed = 0; bool recreate = false;
-    while ((c = getopt(argc, argv, "n:s:t")) != -1) {
+    bool fileProvided = false; char* file;
+    while ((c = getopt(argc, argv, "n:s:tf:")) != -1) {
         if (c == 'n') {
             printf("Nodes: %s\n", optarg);
             vertices = atoi(optarg);
@@ -20,21 +21,29 @@ int main(int argc, char* argv[]) {
         } else if (c == 't') {
             test_permutations (3, 3);
             return 0;
+        } else if (c == 'f') {
+            fileProvided = true;
+            file = optarg;
         }
     }
-    if (vertices < 4) {
-        fprintf(stderr, "Need at least 4 vertices\n");
-        usage(argv);
-        return 1;
-    }
-    InitRng();
-    if (recreate) {
-        set_rng_seed (seed);
-    }
-
-    if (generateAndTestRandomGraph(vertices)) {
-        return 0;
+    int retval = 0;
+    if (!fileProvided) {
+        if (vertices < 4) {
+            fprintf(stderr, "Need at least 4 vertices\n");
+            usage(argv);
+            return 1;
+        }
+        if (generateAndTestRandomGraph(vertices)) {
+            retval = 0;
+        } else {
+            retval = 1;
+        }
     } else {
-        return 1;
+        if (generateAndTestSavedGraph (file)) {
+            retval = 1;
+        } else {
+            retval = 0;
+        }
     }
+    return retval;
 }

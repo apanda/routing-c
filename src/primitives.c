@@ -443,3 +443,14 @@ bool generateAndTestRandomGraph (int vertices) {
     return testGraph (&graph);
 }
 
+bool generateAndTestSavedGraph (char* file) {
+    FILE* graphf = fopen(file, "r");
+    igraph_t graph;
+    igraph_read_graph_gml (&graph, graphf);
+    fclose(graphf);
+    if (igraph_vcount (&graph) < 4) {
+        fprintf(stderr, "Need at least 4 vertices\n");
+        return false;
+    }
+    return testGraph (&graph);
+}
