@@ -8,6 +8,7 @@
 #include <assert.h>
 #include <gsl/gsl_rng.h>
 #include <gsl/gsl_permutation.h>
+#include <gsl/gsl_randist.h>
 #include "khash.h"
 #ifndef _PRIMITIVES_H_
 #define _PRIMITIVES_H_

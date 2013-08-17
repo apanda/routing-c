@@ -374,6 +374,13 @@ static int next_permutation (gsl_permutation** permutations, int length) {
     return GSL_FAILURE;
 }
 
+static int next_random_permutation (gsl_permutation** permutations, int length) {
+    for (int i = length - 1; i >= 0; i--) {
+      gsl_ran_shuffle (r, (permutations[i])->data, length, sizeof(size_t));
+    }
+    return GSL_SUCCESS;
+}
+
 static void init_permutations (gsl_permutation*** permutations, int length, int psize) {
     *permutations = malloc(sizeof(gsl_permutation*) * length);
     for (int i = 0; i < length; i++) {
@@ -403,7 +410,7 @@ void test_permutations (int length, int psize) {
     do {
         print_permutations(permutations, length);
         printf("\n");
-    } while (next_permutation (permutations, length) == GSL_SUCCESS);
+    } while (next_random_permutation (permutations, length) == GSL_SUCCESS);
 }
 
 static bool testGraph (igraph_t* graph) {
@@ -414,6 +421,7 @@ static bool testGraph (igraph_t* graph) {
     init_permutations (&porder, (vertices - 1), (vertices - 1));
     bool any_success = false;
     int success_count = 0;
+    int iteration_counter = 0;
     do {
         print_permutations(porder, (vertices - 1));
         if (test3ConnectedResilience (graph, dest, porder, (vertices - 1))) {
@@ -424,7 +432,9 @@ static bool testGraph (igraph_t* graph) {
         } else {
             printf ("Failure\n");
         }
-    } while (next_permutation (porder, (vertices - 1)) == GSL_SUCCESS);
+        iteration_counter++;
+        printf("counter: %d\n", iteration_counter);
+    } while (next_permutation (porder, (vertices - 1)) == GSL_SUCCESS && iteration_counter <= 2000000);
     if (!any_success) {
         printf("Everything failed, writing graph out for analysis to a.gml\n");
         FILE* out = fopen("a.gml", "w");
