@@ -27,6 +27,10 @@ int main(int argc, char* argv[]) {
         }
     }
     int retval = 0;
+    InitRng();
+    if (recreate) {
+        set_rng_seed(seed);
+    }
     if (!fileProvided) {
         if (vertices < 4) {
             fprintf(stderr, "Need at least 4 vertices\n");
