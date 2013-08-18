@@ -1,5 +1,6 @@
 #include "primitives.h"
 #include <string.h>
+
 static gsl_rng *r = NULL;
 //Init the rng
 void InitRng () {
@@ -198,16 +199,25 @@ void recreate3ConnectedGraph (igraph_t *graph, const char* commands) {
     }
     (void)operation;
 }
-
-static khash_t(table)* orderToTable(const gsl_permutation* order, const int size) {
+#define IDX_TO_NBR(current, idx, nbrs) (idx == 0 ? current : (int)(VECTOR(*nbrs)[idx - 1]))
+static khash_t(table)* orderToTable(const gsl_permutation* order, igraph_vector_t* nbrs, int current) {
     khash_t(table)* t = kh_init(table);
     int ret = 0;
+    int size = igraph_vector_size(nbrs) + 1;
     for (int i = 0; i < size; i++) {
-        int ith = gsl_permutation_get(order, i);
-        int nextth = gsl_permutation_get(order, (i + 1) % size);
+        //int ith = (int)(VECTOR(*nbrs)[gsl_permutation_get(order, i)]);
+        int ith = IDX_TO_NBR(current, gsl_permutation_get(order, i), nbrs);
+        //int nextth = (int)(VECTOR(*nbrs)[gsl_permutation_get(order, (i + 1) % size)]);
+        int nextth = IDX_TO_NBR(current, gsl_permutation_get(order, (i + 1) % size), nbrs);
+        if (ith == nextth) { // this is possible with 2 links
+            continue;
+        }
         khiter_t k = kh_put(table, t, ith, &ret);
-        assert(ret);
+        if (!ret) { // The hash table helpfully fails if reinserting
+            continue;
+        }
         kh_value(t, k) = nextth;
+        //printf("%d -> %d\n", ith, nextth);
     }
     return t;
 }
@@ -216,12 +226,14 @@ static khash_t(table)* orderToTable(const gsl_permutation* order, const int size
 
 void adjListToAdjMatrix (const igraph_adjlist_t* list,
            igraph_matrix_t* mat,
-           int32_t vertices) {
+           int32_t vertices,
+           long int lengths[]) {
     igraph_matrix_null(mat);
     int i = 0;
     for (i = 0; i < vertices; i++) {
         igraph_vector_t* nbrs = igraph_adjlist_get(list, i);
         long int size = igraph_vector_size(nbrs);
+        lengths[i] = size + 1; // Every node is adjacent to itself
         int j = 0;
         for (j = 0; j < size; j++) {
             int other_vertex = VECTOR(*nbrs)[j];
@@ -230,25 +242,23 @@ void adjListToAdjMatrix (const igraph_adjlist_t* list,
     }
 }
 
-static void graphAdjMatrix (const igraph_t *graph, igraph_matrix_t* mat) {
+static void graphAdjMatrix (const igraph_t *graph, igraph_matrix_t* mat, igraph_adjlist_t *adjList, long int lengths[]) {
     int32_t vertices = igraph_vcount(graph);
     //
     // Adjacency matrix
     //  1. Get an adjacency list
-    igraph_adjlist_t adj_list;
-    igraph_adjlist_init(graph, &adj_list, IGRAPH_ALL);
+    igraph_adjlist_init(graph, adjList, IGRAPH_ALL);
     //  2. Create matrix
     igraph_matrix_init(mat, vertices, vertices);
     //  3. Translate
-    adjListToAdjMatrix(&adj_list, mat, vertices);
-    igraph_adjlist_destroy(&adj_list);
+    adjListToAdjMatrix(adjList, mat, vertices, lengths);
 }
 
 bool testPathExist (const igraph_matrix_t* adj, 
-                const int32_t vertices,
-                const igraph_integer_t src,
-                const igraph_integer_t dest,
-                khash_t(table)* t[]) {
+                    const int32_t vertices,
+                    const igraph_integer_t src,
+                    const igraph_integer_t dest,
+                    khash_t(table)* t[]) {
     igraph_matrix_t visited;
     // Hashtable for routing
 
@@ -260,7 +270,7 @@ bool testPathExist (const igraph_matrix_t* adj,
     igraph_integer_t current = src;
     // Assume packet came in on src
     igraph_integer_t link = src;
-    ///printf("\n\nStarting src = %d link = %d dest = %d\n", src, link, dest);
+    //printf("\n\nStarting src = %d link = %d dest = %d\n", src, link, dest);
     while (current != dest) {
         // Check to see if we have link to destination
         if (MATRIX(*adj, current, dest) > 0) {
@@ -311,17 +321,21 @@ static inline void AddEdge(igraph_matrix_t* mat, int32_t v0, int32_t v1) {
 }
 
 bool test3ConnectedResilience (const igraph_t* graph, 
+                                const igraph_matrix_t* gmatrix,
+                                const igraph_adjlist_t* adjlist, 
                                 const igraph_integer_t dest, 
                                 gsl_permutation** order, 
                                 const int size) {
     int32_t vertices = igraph_vcount(graph);
-    igraph_matrix_t adjMatrix;
-    graphAdjMatrix (graph, &adjMatrix);
     int32_t edges = igraph_ecount(graph);
     int32_t edge[2];
+    igraph_matrix_t adjMatrix;
+    igraph_matrix_copy(&adjMatrix, gmatrix);
     khash_t(table)** t = malloc(sizeof(khash_t(table)*) * size);
     for (int i = 0; i < size; i++) {
-        t[i] = orderToTable(order[i], size);
+        //printf("--- Table %d ---\n", i);
+        t[i] = orderToTable(order[i], igraph_adjlist_get(adjlist, i), i);
+        //printf("--- ---\n");
     }
     igraph_real_t mincut = 0.0;
     igraph_mincut_value(graph, &mincut, NULL);
@@ -344,7 +358,7 @@ bool test3ConnectedResilience (const igraph_t* graph,
                 if (src == dest) {
                     continue;
                 }
-                if(!testPathExist(&adjMatrix, vertices, src, dest, t)) {
+                if(!testPathExist(&adjMatrix,  vertices, src, dest, t)) {
                     //printf("%d-%d %d-%d ", v0[0], v0[1], v1[0], v1[1]);
                     ret = false;
                     goto cleanup;
@@ -381,10 +395,10 @@ static int next_random_permutation (gsl_permutation** permutations, int length) 
     return GSL_SUCCESS;
 }
 
-static void init_permutations (gsl_permutation*** permutations, int length, int psize) {
+static void init_permutations (gsl_permutation*** permutations, int length, long int psize[]) {
     *permutations = malloc(sizeof(gsl_permutation*) * length);
     for (int i = 0; i < length; i++) {
-        (*permutations)[i] = gsl_permutation_alloc(psize);
+        (*permutations)[i] = gsl_permutation_alloc(psize[i]);
         gsl_permutation_init((*permutations)[i]);
     }
 }
@@ -404,13 +418,33 @@ static void print_permutations (gsl_permutation** permutations, int length) {
     }
 }
 
+static void print_permutations_graph (gsl_permutation** permutations, int length, igraph_adjlist_t* adjList) {
+    for (int i = 0; i < length; i++) {
+        printf ("| ");
+        igraph_vector_t* nbrs = igraph_adjlist_get(adjList, i);
+        size_t *perm = gsl_permutation_data (permutations[i]);
+        size_t len =  gsl_permutation_size(permutations[i]);
+        for (int j = 0; j < len; j++) {
+            //gsl_permutation_fprintf(stdout, permutations[i], "%u ");
+            fprintf(stdout, "%d ", (int)IDX_TO_NBR(i, perm[j], nbrs));
+        }
+        printf("| ");
+    }
+}
+
 void test_permutations (int length, int psize) {
     gsl_permutation** permutations;
-    init_permutations(&permutations, length, psize);
+    long int *lengths = (long int*)malloc(sizeof(long int) * length);
+    for (int i = 0; i < length; i++) {
+        lengths[i] = length;
+    }
+    init_permutations(&permutations, length, lengths);
     do {
         print_permutations(permutations, length);
         printf("\n");
-    } while (next_random_permutation (permutations, length) == GSL_SUCCESS);
+    } while (next_permutation (permutations, length) == GSL_SUCCESS);
+    //while (next_random_permutation (permutations, length) == GSL_SUCCESS);
+    free(lengths);
 }
 
 static bool testGraph (igraph_t* graph) {
@@ -418,13 +452,17 @@ static bool testGraph (igraph_t* graph) {
     // User vertices - 1 (the highest vertex as dest)
     igraph_integer_t dest = vertices - 1;
     gsl_permutation **porder;
-    init_permutations (&porder, (vertices - 1), (vertices - 1));
+    igraph_matrix_t adjMatrix;
+    igraph_adjlist_t adjList;
+    long int *lengths = (long int*)malloc(sizeof(long int) * vertices);
+    graphAdjMatrix (graph, &adjMatrix, &adjList, lengths);
+    init_permutations (&porder, (vertices - 1), lengths);
     bool any_success = false;
     int success_count = 0;
     int iteration_counter = 0;
     do {
-        print_permutations(porder, (vertices - 1));
-        if (test3ConnectedResilience (graph, dest, porder, (vertices - 1))) {
+        print_permutations_graph(porder, (vertices - 1), &adjList);
+        if (test3ConnectedResilience (graph, &adjMatrix, &adjList, dest, porder, (vertices - 1))) {
             // Permute order here somehow
             any_success |= true;
             printf ("Success\n");
@@ -433,8 +471,10 @@ static bool testGraph (igraph_t* graph) {
             printf ("Failure\n");
         }
         iteration_counter++;
-        printf("counter: %d\n", iteration_counter);
-    } while (next_permutation (porder, (vertices - 1)) == GSL_SUCCESS && iteration_counter <= 2000000);
+        //printf("counter: %d\n", iteration_counter);
+    } while (next_permutation (porder, (vertices - 1)) == GSL_SUCCESS);
+    (void)next_random_permutation;
+    // while (next_random_permutation (porder, (vertices - 1)) == GSL_SUCCESS && iteration_counter <= 2000000);
     if (!any_success) {
         printf("Everything failed, writing graph out for analysis to a.gml\n");
         FILE* out = fopen("a.gml", "w");
@@ -444,6 +484,7 @@ static bool testGraph (igraph_t* graph) {
     }
     printf("Success count is %d\n", success_count);
     destroy_permutations(porder, (vertices - 1));
+    free(lengths);
     return any_success;
 }
 

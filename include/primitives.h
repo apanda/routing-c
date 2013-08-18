@@ -28,18 +28,21 @@ void construct3ConnectedGraph (igraph_t* graph, uint32_t vertices);
 // matrix (easier to use for our purposes).
 void adjListToAdjMatrix (const igraph_adjlist_t* list, 
                         igraph_matrix_t* mat, 
-                        int32_t vertices);
+                        int32_t vertices,
+                        long int lengths[]);
 
 // Test that a path exists from source to destination using the provided routing
 // table
 bool testPathExist (const igraph_matrix_t* adj, 
-                const int32_t vertices,
-                const igraph_integer_t src,
-                const igraph_integer_t dest,
-                khash_t(table)* t[]);
+                    const int32_t vertices,
+                    const igraph_integer_t src,
+                    const igraph_integer_t dest,
+                    khash_t(table)* t[]);
 
 // Check to see whether a particular routing order is 2-resilient
 bool test3ConnectedResilience (const igraph_t* graph, 
+                                const igraph_matrix_t* gmatrix,
+                                const igraph_adjlist_t* adjlist, 
                                 const igraph_integer_t dest, 
                                 gsl_permutation** order, 
                                 const int size);
