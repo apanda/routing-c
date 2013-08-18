@@ -461,15 +461,16 @@ static bool testGraph (igraph_t* graph) {
     int success_count = 0;
     int iteration_counter = 0;
     do {
-        print_permutations_graph(porder, (vertices - 1), &adjList);
+        // It really doesn't make sense to print on failure with such a large number of permutations
         if (test3ConnectedResilience (graph, &adjMatrix, &adjList, dest, porder, (vertices - 1))) {
+            print_permutations_graph(porder, (vertices - 1), &adjList);
             // Permute order here somehow
             any_success |= true;
             printf ("Success\n");
             success_count++;
-        } else {
-            printf ("Failure\n");
-        }
+            // Break once successful
+            break;
+        } 
         iteration_counter++;
         //printf("counter: %d\n", iteration_counter);
     } while (next_permutation (porder, (vertices - 1)) == GSL_SUCCESS);
